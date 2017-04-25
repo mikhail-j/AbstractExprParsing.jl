@@ -16,7 +16,7 @@ immutable Expression
 	arguments::Tuple
 end
 
-Expression(op::String, args::Vararg{Any}) = Expression(op, map(string, args));
+Expression(op::String, args::Vararg{Any}) = Expression(op, map(Expression, args));
 
 function (e::Expression)(args::Vararg{Any})
     if ((length(e.arguments) == 0) && is_logic_symbol(e.operator))
@@ -128,7 +128,8 @@ end
 function subexpressions(e::Expression)
     local answer::AbstractVector = [e];
     for arg in e.arguments
-        answer = vcat(answer, subexpressions(expr(string(arg))));
+        #answer = vcat(answer, subexpressions(expr(string(arg))));
+        answer = vcat(answer, subexpressions(arg));
     end
     return answer;
 end
@@ -153,30 +154,19 @@ type ExpressionNode
     end
 end
 
-function construct_expression_tree(s::String)
+function identify_tokens(s::String)
     local existing_parenthesis::Int64 = 0;
+    local queue::Array{String, 1} = Array{String, 1}([]);
     local current_string::Array{Char, 1} = Array{Char, 1}([]);
-    local current_node::ExpressionNode = ExpressionNode();
-    local root_node::ExpressionNode = current_node;
     local isOperator::Bool = false;
     for character in s
         if (character == '(')
             existing_parenthesis = existing_parenthesis + 1;
 
-            println("pre-(: ", String(current_string));
-
-            if (isnull(current_node.value))
-                if (!(strip(String(current_string)) == ""))
-                    current_node.value = Nullable{String}(String(current_string));
-                end
-                new_node = ExpressionNode(parent=current_node);
-                push!(current_node.children, new_node);
-                current_node = new_node;
-            else
-                new_intermediate_node = ExpressionNode(val=String(current_string), parent=current_node);
-                push!(current_node.children, new_intermediate_node)
-                current_node = new_intermediate_node;
+            if (strip(String(current_string)) != "")
+                push!(queue, strip(String(current_string)));
             end
+            push!(queue, "(");
 
             if (isOperator)
                 isOperator = false;
@@ -184,157 +174,50 @@ function construct_expression_tree(s::String)
             current_string = Array{Char, 1}([]);
         elseif (character == ')')
             existing_parenthesis = existing_parenthesis - 1;
-            if (isnull(current_node.value) && !isOperator)
-                current_node.value = Nullable{String}(String(current_string));
-            elseif (length(current_string) != 0)
-                push!(current_node.children, ExpressionNode(val=String(current_string), parent=current_node));
+
+            if (strip(String(current_string)) != "")
+                push!(queue, strip(String(current_string)));
             end
+            push!(queue, ")");
 
             if (isOperator) #operators can't be leaves
                 error("ConstructExpressionTreeError: Detected operator at leaf level!");
             end
 
-
-            print("pre-) value: ", String(current_string),
-                " current node value: ", get(current_node.value), " parent node: ");
-            if (!isnull(current_node.parent))
-                println(get(get(current_node.parent).value));
-            else
-                println();
-            end
-
-
-            if (!isnull(current_node.parent))   #traverse towards the root
-                current_node = get(current_node.parent);
-            end
             current_string = Array{Char, 1}([]);
         elseif (character == ',')
             if (strip(String(current_string)) == "")
-                error("ConstructExpressionTreeError: Invalid n-Tuple detected!");
-            end
-
-            print("current node value: ");
-            if (!isnull(current_node.value))
-                print(get(current_node.value));
+                if (queue[length(queue)] == ")")    #do nothing
+                else
+                    error("ConstructExpressionTreeError: Invalid n-Tuple detected!");
+                end
             else
-                print("#NULL");
+                push!(queue, strip(String(current_string)));
             end
-            print(" previous n-ary value: ", String(current_string), " parent node: ");
-            if (!isnull(current_node.parent))
-                println(get(get(current_node.parent).value));
-            else
-                println("#NULL");
-            end
-            print("children: ");
-            for c in current_node.children
-                print(get(c.value), ",");
-            end
-            println();
 
-            #push!(current_node.children, ExpressionNode(val=String(current_string), parent=current_node));
-
-            ##check if operator is binary and if we should traverse backward for n-ary operator
-            #if (!isnull(current_node.value))
-            #    isBinaryOperator::Bool = any((function(c)
-            #                                    return c in get(current_node.value);
-            #                                end),
-            #                                ('+', '-', '*', '/', '\\', '=', '<', '>', '\$', '|', '%', '^', '~', '&'));
-            #    if (isBinaryOperator)
-            #
-            #    end
-            #end
-            if (isnull(current_node.value))
-                current_node.value = Nullable{String}(String(current_string));
-            else    #finish any existing binary branch
-                push!(current_node.children, ExpressionNode(val=String(current_string), parent=current_node));
-            end
-            current_node = get(current_node.parent);
-            new_nary_node = ExpressionNode(parent=current_node);
-            push!(current_node.children, new_nary_node);
-            current_node = new_nary_node;
+            push!(queue, ",");
 
             current_string = Array{Char, 1}([]);
         elseif (character == ' ')   #white space is considered
+            if (isOperator)
+                push!(queue, strip(String(current_string)));
+                current_string = Array{Char, 1}([]);
+                isOperator = false;
+            end
+
             push!(current_string, character);
-        elseif (character in ('+', '-', '*', '/', '\\', '=', '<', '>', '\$', '|', '%', '^', '~', '&'))
+        elseif (character in ('+', '-', '*', '/', '\\', '=', '<', '>', '\$', '|', '%', '^', '~', '&', '?'))
             if (!isOperator)
-
-                print("previous symbol value: ", String(current_string),
-                    " current existing node value: ");
-
-                if (!isnull(current_node.value))
-                    print(get(current_node.value));
-                else
-                    print("#NULL");
-                end
-                print(" parent node: ");
-                if (!isnull(current_node.parent))
-                    println(get(get(current_node.parent).value));
-                else
-                    println("#NULL");
-                end
-                print("children: ");
-                for c in current_node.children
-                    print(get(c.value), ",");
-                end
-                println();
-
-                if (isnull(current_node.value))
-                    push!(current_node.children, ExpressionNode(val=String(current_string), parent=current_node));
-                elseif (!isnull(current_node.parent))
-                    new_intermediate_node = ExpressionNode(parent=get(current_node.parent))
-                    notFound::Bool = true;
-                    for (i, c) in enumerate(get(current_node.parent).children)
-                        if (c == current_node)
-                            deleteat!(get(current_node.parent).children, i);
-                            insert!(get(current_node.parent).children, i, new_intermediate_node);
-                            notFound = false;
-                            break;
-                        end
-                    end
-                    if (notFound)
-                        error("ConstructExpressionTreeError: could not find existing child node!");
-                    end
-                    current_node.parent = Nullable{ExpressionNode}(new_intermediate_node);
-                    push!(new_intermediate_node.children, current_node);
-                    current_node = new_intermediate_node;
-                else
-                    new_root_node = ExpressionNode();
-                    push!(new_root_node.children, current_node);
-                    current_node.parent = Nullable{ExpressionNode}(new_root_node);
-                    current_node = new_root_node;
-                    root_node = current_node;
+                if (strip(String(current_string)) != "")
+                    push!(queue, strip(String(current_string)));
                 end
                 current_string = Array{Char, 1}([]);
             end
-#=
-            if (length(current_node.children) > 2)
-                error("ConstructBinaryExpressionTreeError: Invalid binary expression tree children count!");
-            end
-=#
             push!(current_string, character);
             isOperator = true;
         else    #found new symbol  
             if (isOperator) #first character of new token
-                if (isnull(current_node.value))
-                    current_node.value = Nullable{String}(String(current_string));
-                    println("new operator: ", String(current_string));
-                else
-
-                    print("previous operator value: ", String(current_string),
-                        " current existing node value: ", get(current_node.value), " parent node: ");
-                    if (!isnull(current_node.parent) && !isnull(get(current_node.parent).value))
-                        println(get(get(current_node.parent).value));
-                    else
-                        println("#NULL");
-                    end
-
-                    new_root_node = ExpressionNode(val=String(current_string));
-                    push!(new_root_node.children, current_node);
-                    current_node.parent = Nullable{ExpressionNode}(new_root_node);
-                    current_node = new_root_node;
-                    root_node = current_node;
-                end
+                push!(queue, strip(String(current_string)));
                 current_string = Array{Char, 1}([]);
                 isOperator = false;
             end
@@ -346,14 +229,234 @@ function construct_expression_tree(s::String)
             error("ConstructExpressionTreeError: Invalid parentheses syntax detected!");
         end
     end
+    #Check for a possible token at the end of the String.
+    if (strip(String(current_string)) != "")
+        push!(queue, strip(String(current_string)));
+    end
+
+    if (existing_parenthesis != 0)
+        error("ConstructExpressionTreeError: Invalid number of parentheses!");
+    end
+    return queue;
+end
+
+function parenthesize_tokens(tokens::AbstractVector)
+    local existing_parenthesis::Int64 = 0;
+    local add_parentheses_at::Array{Int64, 1} = Array{Int64, 1}([]);   #-1 if nothing should be done
+    #//Find next prefix operator without a following '('
+    for index in 1:length(tokens)
+        if (any((function(c::Char)
+                        return c in tokens[index];
+                    end),
+                    ('+', '-', '*', '/', '\\', '=', '<', '>', '\$', '|', '%', '^', '~', '&', '?')))
+            #//Check if '(' exists already
+            if (((index + 1) != length(tokens) + 1) && (tokens[index + 1] != "("))
+                push!(add_parentheses_at, index);
+            end
+        end
+    end
+    if (length(add_parentheses_at) == 0)
+        return tokens;
+    else
+        last_entry_index = pop!(add_parentheses_at);
+        modified_tokens::Bool = false;
+        #######println("trying to modify: ", tokens[(last_entry_index + 1):length(tokens)]...);
+        for index in (last_entry_index + 1):length(tokens)
+            if (tokens[index] == "(")
+                existing_parenthesis = existing_parenthesis + 1;
+            elseif (tokens[index] == ")")
+                existing_parenthesis = existing_parenthesis - 1;
+            end
+            if (existing_parenthesis == 0)
+                if (((index + 1) < length(tokens)) &&   #'(' should not exist at the end of the expression
+                    (tokens[index + 1] != "("))
+                    insert!(tokens, index + 1, ")");
+                    insert!(tokens, last_entry_index + 1, "(");
+                    modified_tokens = true;
+                    break;
+                elseif (index == length(tokens))
+                    insert!(tokens, index + 1, ")");
+                    insert!(tokens, last_entry_index + 1, "(");
+                    modified_tokens = true;
+                    break;
+                end
+            end
+        end
+        if (!modified_tokens)
+            error("ConstructExpressionTreeError: Could not add parentheses to the expression!");
+        end
+        ##########println(tokens...);
+        return parenthesize_tokens(tokens);
+    end
+end
+
+function construct_expression_tree(tokens::AbstractVector)
+    local existing_parenthesis::Int64 = 0;
+    local current_node::ExpressionNode = ExpressionNode();
+    local root_node::ExpressionNode = current_node;
+    local unary_depth::Int64 = 0;   #when operator exists and we traverse to a new child node
+    for token in tokens
+        if (token == "(")
+            existing_parenthesis = existing_parenthesis + 1;
+
+            #//Create new level and visit it
+            new_node = ExpressionNode(parent=current_node);
+            push!(current_node.children, new_node);
+            current_node = new_node;
+        elseif (token == ")")
+            existing_parenthesis = existing_parenthesis - 1;
+            if (!isnull(current_node.parent))
+                current_node = get(current_node.parent);
+            else
+                error("ConstructExpressionTreeError: The root node does not have a parent!");
+            end
+        elseif (token == ",")
+            #if (get(current_node.value) in ("~", "-", "+"))     #//unary operator exists already!
+            if (!isnull(current_node.value) && get(current_node.value) != ",")
+                notFound = true;
+                
+                new_intermediate_node = ExpressionNode(val=token, parent=get(current_node.parent));
+                for (i, c) in enumerate(get(current_node.parent).children)
+                    if (c == current_node)
+                        deleteat!(get(current_node.parent).children, i);
+                        insert!(get(current_node.parent).children, i, new_intermediate_node);
+                        notFound = false;
+                        break;
+                    end
+                end
+                if (notFound)
+                    error("ConstructExpressionTreeError: could not find existing child node!");
+                end
+                
+
+                current_node.parent = Nullable{ExpressionNode}(new_intermediate_node);
+                push!(new_intermediate_node.children, current_node);
+                current_node = new_intermediate_node;
+            else
+                current_node.value = Nullable{String}(",");
+            end
+        elseif (any((function(c::Char)
+                        return c in token;
+                    end),
+                    ('+', '-', '*', '/', '\\', '=', '<', '>', '\$', '|', '%', '^', '~', '&', '?')))
+            print("current node: ", get(current_node.value), " current token: ", token," parent node: ");
+            if (isnull(current_node.parent))
+                print("#NULL");
+            else
+                if (!isnull(get(current_node.parent).value))
+                    print(get(get(current_node.parent).value));
+                else
+                    print(get(current_node.parent));
+                end
+            end
+            println();
+            print("children: ");
+            for c in current_node.children
+                print(get(c.value), ", ");
+            end
+            println();
+            println("operator has ",
+                    length(current_node.children),
+                    " arguments!");
+            #//Check if operator exists already
+            if (isnull(current_node.value))
+                current_node.value = Nullable{String}(token);
+            else
+                    
+                #if ((length(current_node.children) == 2) ||
+                if (!any((function(c::Char)
+                        return c in token;
+                    end),
+                    ('+', '-', '*', '/', '\\', '=', '<', '>', '\$', '|', '%', '^', '~', '&', '?')))
+                    if (isnull(current_node.parent))
+                        new_root_node = ExpressionNode(val=token);
+                        push!(new_root_node.children, current_node);
+                        current_node.parent = new_root_node;
+                        current_node = new_root_node;
+                    else
+                        notFound = true;
+                        new_intermediate_node = ExpressionNode(val=token, parent=get(current_node.parent));
+
+                        for (i, c) in enumerate(get(current_node.parent).children)
+                            if (c == current_node)
+                                deleteat!(get(current_node.parent).children, i);
+                                insert!(get(current_node.parent).children, i, new_intermediate_node);
+                                notFound = false;
+                                break;
+                            end
+                        end
+                        if (notFound)
+                            error("ConstructExpressionTreeError: Could not find existing child node!");
+                        end
+
+                        current_node.parent = Nullable{ExpressionNode}(new_intermediate_node);
+                        push!(new_intermediate_node.children, current_node);
+                        current_node = new_intermediate_node;
+                    end
+                #elseif ((length(current_node.children) == 1) && (get(current_node.children[1].value) == ","))
+                else
+                    if (isnull(current_node.parent))
+                        new_root_node = ExpressionNode(val=token);
+                        current_node.parent = new_root_node;
+                        push!(new_root_node.children, current_node);
+                        current_node = new_root_node;
+                    else
+                        notFound = true;
+                        new_intermediate_node = ExpressionNode(val=token, parent=get(current_node.parent));
+
+                        for (i, c) in enumerate(get(current_node.parent).children)
+                            if (c == current_node)
+                                deleteat!(get(current_node.parent).children, i);
+                                insert!(get(current_node.parent).children, i, new_intermediate_node);
+                                notFound = false;
+                                break;
+                            end
+                        end
+                        if (notFound)
+                            error("ConstructExpressionTreeError: Could not find existing child node!");
+                        end
+
+                        current_node.parent = Nullable{ExpressionNode}(new_intermediate_node);
+                        push!(new_intermediate_node.children, current_node);
+                        current_node = new_intermediate_node;
+
+                        #println("trying to insert: ", token);
+                        #error("ConstructExpressionTreeError: Parent of root is not null: ", get(current_node.parent));
+                    end
+                #else
+                end
+            end
+        else    #Not a special operator
+            if (isnull(current_node.value))
+                current_node.value = Nullable{String}(token);
+            else
+                new_node = ExpressionNode(val=token, parent=current_node);
+                push!(current_node.children, new_node);
+            end
+        end
+
+
+        if (existing_parenthesis < 0)
+            error("ConstructExpressionTreeError: Invalid parentheses syntax detected!");
+        end
+    end
+
+    while (!isnull(root_node.parent))
+        root_node = get(root_node.parent);
+    end
+
     if (existing_parenthesis != 0)
         error("ConstructExpressionTreeError: Invalid number of parentheses!");
     end
     return root_node;
 end
 
+
+
 function parse_expression(s::String)
-    root_node::ExpressionNode = construct_expression_tree(s);
+    local tokens::AbstractVector = identify_tokens(s);
+    tokens = parenthesize_tokens(tokens);
+    local root_node::ExpressionNode = construct_expression_tree(tokens);
     return evaluate_expression_tree(root_node);
 end
 
@@ -364,4 +467,24 @@ end
 #construct_expression_tree("P ==> (Q(1, 2))");
 
 #construct_expression_tree("Q(P(x) ==> A, S(x)) ==> R(x)");
+
+#function evaluate_expression_tree(node::ExpressionNode; previous_val::Union{Void, String}=nothing)
+
+function evaluate_expression_tree(node::ExpressionNode)
+    local queue::AbstractVector = [];
+    for child in node.children
+        if (get(child.value) != ",")
+            push!(queue, evaluate_expression_tree(child));
+        else #Use current operator for childrens' children
+            for child_child in child.children
+                push!(queue, evaluate_expression_tree(child_child));
+            end
+        end
+    end
+    if (length(node.children) == 0)
+        return Expression(get(node.value));
+    else
+        return Expression(get(node.value), queue...);
+    end
+end
 
