@@ -243,41 +243,119 @@ end
 #Parenthesize any arguments that are not enclosed by parentheses
 function parenthesize_arguments(tokens::AbstractVector) 
     local existing_parenthesis::Int64 = 0;
+    local comma_indices::Array{Int64, 1} = Array{Int64, 1}([]);
     #keep track of opening and closing parentheses indices
     #keep track of comma indices at the same tree level
     #this function runs after parenthesize_tokens()
+    for index in 1:length(tokens)
+        if (tokens[index] == ",")
+            push!(comma_indices, index);
+        end
+    end
+    for comma_index in reverse(comma_indices)
+        ####println("index to modify: ", comma_index, " token: ", tokens[comma_index],
+        ####        " comma indices: ", comma_indices, " tokens: ", tokens...);
+        no_parentheses = false; #boolean indicating if the current argument is enclosed in parentheses
+        #,=>    #the order of indices to search rightward
+        existing_parenthesis = 0;
+        for index in (comma_index + 1):length(tokens)
+            if (tokens[index] == "(")
+                existing_parenthesis = existing_parenthesis + 1;
+            elseif (tokens[index] == ")")
+                existing_parenthesis = existing_parenthesis - 1;
+                if (index == (comma_index + 1))
+                    error("ConstructExpressionTreeError: Found ')', expected argument!");
+                end
+            elseif (tokens[index] == ",")
+                if (existing_parenthesis == 0)  #found following comma in same tree level
+                    #Add parentheses
+                    if (no_parentheses)
+                        insert!(tokens, index, ")");
+                        insert!(tokens, (comma_index + 1), "(");
+                    end
+                    break;
+                end
+            else
+                if (existing_parenthesis == 0)  #the current argument is not enclosed in parentheses
+                    no_parentheses = true;
+                end
+            end
+
+            if (existing_parenthesis == -1) #found end of arguments for infix function
+                ####println("index: ", index, " token: ", tokens[index], " no_parentheses: ", no_parentheses);
+                #Add parentheses
+                if (no_parentheses)
+                    insert!(tokens, index, ")");
+                    insert!(tokens, (comma_index + 1), "(");
+                end
+                break;
+            end
+        end
+        no_parentheses = false; #boolean indicating if the current argument is enclosed in parentheses
+        #<=,    #reverse the order of indices to search leftward
+        existing_parenthesis = 0;
+        for index in reverse(1:(comma_index - 1))
+            if (tokens[index] == "(")
+                existing_parenthesis = existing_parenthesis + 1;
+                if (index == (comma_index - 1))
+                    error("ConstructExpressionTreeError: Found '(', expected argument!");
+                end
+            elseif (tokens[index] == ")")
+                existing_parenthesis = existing_parenthesis - 1;
+            elseif (tokens[index] == ",")
+                if (existing_parenthesis == 0)  #found following comma in same tree level
+                    #Add parentheses
+                    if (no_parentheses)
+                        insert!(tokens, comma_index, ")");
+                        insert!(tokens, (index + 1), "(");
+                    end
+                    break;
+                end
+            else
+                if (existing_parenthesis == 0)  #the current argument is not enclosed in parentheses
+                    no_parentheses = true;
+                end
+            end
+
+            if (existing_parenthesis == 1) #found end of arguments for infix function
+                ####println("index: ", index, " token: ", tokens[index], " no_parentheses: ", no_parentheses);
+                #Add parentheses
+                if (no_parentheses)
+                    insert!(tokens, comma_index, ")");
+                    insert!(tokens, index, "(");
+                end
+                break;
+            end
+        end
+    end
+    return tokens;
 end
 
 function parenthesize_tokens(tokens::AbstractVector)
     local existing_parenthesis::Int64 = 0;
     local add_parentheses_at::Array{Int64, 1} = Array{Int64, 1}([]);   #-1 if nothing should be done
-    #//Find next prefix operator without a following '('
+    #Find next prefix operator without a following '('
     for index in 1:length(tokens)
         if (any((function(c::Char)
                         return c in tokens[index];
                     end),
                     ('+', '-', '*', '/', '\\', '=', '<', '>', '\$', '|', '%', '^', '~', '&', '?')))
-            #//Check if '(' exists already
+            #Check if '(' exists already
             if (((index + 1) != length(tokens) + 1) && (tokens[index + 1] != "("))
                 push!(add_parentheses_at, index);
             end
         end
     end
-    if (length(add_parentheses_at) == 0)
-        return tokens;
-    else
-        last_entry_index = pop!(add_parentheses_at);
-        println("index to modify: ", last_entry_index, " token: ", tokens[last_entry_index],
-                " tokens: ", tokens...);
+    for last_entry_index in reverse(add_parentheses_at)
+        ####println("index to modify: ", last_entry_index, " token: ", tokens[last_entry_index],
+        ####        " tokens: ", tokens...);
         modified_tokens::Bool = false;
-        #######println("trying to modify: ", tokens[(last_entry_index + 1):length(tokens)]...);
         for index in (last_entry_index + 1):length(tokens)
             if (tokens[index] == "(")
                 existing_parenthesis = existing_parenthesis + 1;
             elseif (tokens[index] == ")")
                 existing_parenthesis = existing_parenthesis - 1;
             end
-            #if (existing_parenthesis == 0)
             if (existing_parenthesis == 0)
                 if (((index + 1) < length(tokens)) &&   #'(' should not exist at the end of the expression
                     (tokens[index + 1] != "("))
@@ -294,25 +372,6 @@ function parenthesize_tokens(tokens::AbstractVector)
             elseif (existing_parenthesis == -1) #reached higher tree level (')'), ('(') should exist
                 insert!(tokens, index, ")");
                 insert!(tokens, last_entry_index + 1, "(");
-            #    found_outer_parenthesis = false;
-            #    for left_index in reverse(1:last_entry_index)
-            #        if (tokens[left_index] == "(")
-            #            existing_parenthesis = existing_parenthesis + 1;
-            #        elseif (tokens[left_index] == ")")
-            #            existing_parenthesis = existing_parenthesis - 1;
-            #        end
-#
-            #        if (existing_parenthesis == 0)
-            #            insert!(tokens, left_index, "(");
-            #            found_outer_parenthesis = true;
-            #            break;
-            #        end
-            #    end
-            #    #insert!(tokens, last_entry_index + 1, "(");
-            #    #exist_parenthesis = 0;
-            #    if (!found_outer_parenthesis)
-            #        error("ConstructExpressionTreeError: Could not add parentheses to the expression!");
-            #    end
                 existing_parenthesis = 0;
                 modified_tokens = true;
                 break;
@@ -321,9 +380,8 @@ function parenthesize_tokens(tokens::AbstractVector)
         if (!modified_tokens)
             error("ConstructExpressionTreeError: Could not add parentheses to the expression!");
         end
-        ##########println(tokens...);
-        return parenthesize_tokens(tokens);
     end
+    return tokens;
 end
 
 function construct_expression_tree(tokens::AbstractVector)
@@ -335,7 +393,7 @@ function construct_expression_tree(tokens::AbstractVector)
         if (token == "(")
             existing_parenthesis = existing_parenthesis + 1;
 
-            #//Create new level and visit it
+            #Create new level and visit it
             new_node = ExpressionNode(parent=current_node);
             push!(current_node.children, new_node);
             current_node = new_node;
@@ -347,7 +405,6 @@ function construct_expression_tree(tokens::AbstractVector)
                 error("ConstructExpressionTreeError: The root node does not have a parent!");
             end
         elseif (token == ",")
-            #if (get(current_node.value) in ("~", "-", "+"))     #//unary operator exists already!
             if (!isnull(current_node.value) && get(current_node.value) != ",")
                 notFound = true;
                 
@@ -375,37 +432,35 @@ function construct_expression_tree(tokens::AbstractVector)
                         return c in token;
                     end),
                     ('+', '-', '*', '/', '\\', '=', '<', '>', '\$', '|', '%', '^', '~', '&', '?')))
-            print("current node: ");
-            if (!isnull(current_node.value))
-                print(get(current_node.value));
-            else
-                print("#NULL");
-            end
-            print(" current token: ", token," parent node: ");
-            if (isnull(current_node.parent))
-                print("#NULL");
-            else
-                if (!isnull(get(current_node.parent).value))
-                    print(get(get(current_node.parent).value));
-                else
-                    print(get(current_node.parent));
-                end
-            end
-            println();
-            print("children: ");
-            for c in current_node.children
-                print(get(c.value), ", ");
-            end
-            println();
-            println("operator has ",
-                    length(current_node.children),
-                    " arguments!");
-            #//Check if operator exists already
+            ####print("current node: ");
+            ####if (!isnull(current_node.value))
+            ####    print(get(current_node.value));
+            ####else
+            ####    print("#NULL");
+            ####end
+            ####print(" current token: ", token," parent node: ");
+            ####if (isnull(current_node.parent))
+            ####    print("#NULL");
+            ####else
+            ####    if (!isnull(get(current_node.parent).value))
+            ####        print(get(get(current_node.parent).value));
+            ####    else
+            ####        print(get(current_node.parent));
+            ####    end
+            ####end
+            ####println();
+            ####print("children: ");
+            ####for c in current_node.children
+            ####    print(get(c.value), ", ");
+            ####end
+            ####println();
+            ####println("operator has ",
+            ####        length(current_node.children),
+            ####        " arguments!");
+            #Check if operator exists already
             if (isnull(current_node.value))
                 current_node.value = Nullable{String}(token);
             else
-                    
-                #if ((length(current_node.children) == 2) ||
                 if (!any((function(c::Char)
                         return c in token;
                     end),
@@ -435,7 +490,6 @@ function construct_expression_tree(tokens::AbstractVector)
                         push!(new_intermediate_node.children, current_node);
                         current_node = new_intermediate_node;
                     end
-                #elseif ((length(current_node.children) == 1) && (get(current_node.children[1].value) == ","))
                 else
                     if (isnull(current_node.parent))
                         new_root_node = ExpressionNode(val=token);
@@ -461,11 +515,7 @@ function construct_expression_tree(tokens::AbstractVector)
                         current_node.parent = Nullable{ExpressionNode}(new_intermediate_node);
                         push!(new_intermediate_node.children, current_node);
                         current_node = new_intermediate_node;
-
-                        #println("trying to insert: ", token);
-                        #error("ConstructExpressionTreeError: Parent of root is not null: ", get(current_node.parent));
                     end
-                #else
                 end
             end
         else    #Not a special operator
@@ -533,20 +583,23 @@ end
 function parse_expression(s::String)
     local tokens::AbstractVector = identify_tokens(s);
     tokens = parenthesize_tokens(tokens);
+    tokens = parenthesize_arguments(tokens);
     local root_node::ExpressionNode = construct_expression_tree(tokens);
     root_node = prune_nodes(root_node);
     return evaluate_expression_tree(root_node);
 end
 
-#Some special cases for construct_expression_tree()
+#Some special cases for parse_expression()
 
-#construct_expression_tree("P ==> (Q(1))");
+#parse_expression("P ==> (Q(1))");
 
-#construct_expression_tree("P ==> (Q(1, 2))");
+#parse_expression("P ==> (Q(1, 2))");
 
-#construct_expression_tree("Q(P(x) ==> A, S(x)) ==> R(x)");
+#parse_expression("Q(P(x) ==> A, S(x)) ==> R(x)");
 
-#function evaluate_expression_tree(node::ExpressionNode; previous_val::Union{Void, String}=nothing)
+#parse_expression("F(x, x) & G(x, y) & H(y, z) & R(A, z, z)");
+
+#parse_expression("P & Q | ~R(x, F(x))");
 
 function evaluate_expression_tree(node::ExpressionNode)
     local queue::AbstractVector = [];
